@@ -4,23 +4,153 @@ export interface MobileMedicineData {
   dose: string;
   time: string;
   priority?: 'low' | 'medium' | 'high';
+  scheduleTime?: Date;
 }
 
 export class MobileNotificationService {
-  // Request permission untuk mobile
+  // Schedule notification dengan background sync
+  static async scheduleBackgroundNotification(
+    medicineData: MobileMedicineData, 
+    delaySeconds: number = 15
+  ): Promise<boolean> {
+    console.log(`Scheduling background notification for ${medicineData.name} in ${delaySeconds} seconds`);
+    
+    try {
+      // Simpan data untuk background sync
+      const scheduledTime = new Date(Date.now() + delaySeconds * 1000);
+      const notificationData = {
+        ...medicineData,
+        scheduleTime: scheduledTime.toISOString(),
+        type: 'scheduled_medicine'
+      };
+
+      // Register background sync
+      if ('serviceWorker' in navigator && 'sync' in (self as any).registration) {
+        await this.registerBackgroundSync(notificationData, delaySeconds);
+        console.log('Background sync registered successfully');
+        return true;
+      } else {
+        // Fallback ke setTimeout
+        return await this.scheduleWithTimeout(medicineData, delaySeconds);
+      }
+    } catch (error) {
+      console.error('Failed to schedule background notification:', error);
+      return await this.scheduleWithTimeout(medicineData, delaySeconds);
+    }
+  }
+
+  private static async registerBackgroundSync(medicineData: any, delaySeconds: number): Promise<void> {
+    const registration = await navigator.serviceWorker.ready;
+    const syncTag = `bg-medicine-${JSON.stringify(medicineData)}`;
+    
+    // Wait for the delay then register sync
+    setTimeout(async () => {
+      try {
+        await (registration as any).sync.register(syncTag);
+        console.log('Background sync registered after delay:', syncTag);
+      } catch (error) {
+        console.error('Failed to register background sync:', error);
+      }
+    }, delaySeconds * 1000);
+  }
+
+  private static async scheduleWithTimeout(medicineData: MobileMedicineData, delaySeconds: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      setTimeout(async () => {
+        try {
+          console.log('Timeout triggered, showing notification...');
+          const success = await this.triggerMobilePopup(medicineData);
+          resolve(success);
+        } catch (error) {
+          console.error('Scheduled notification failed:', error);
+          resolve(false);
+        }
+      }, delaySeconds * 1000);
+    });
+  }
+
+  // Enhanced mobile notification dengan semua fitur
+  static async triggerMobilePopup(medicineData: MobileMedicineData): Promise<boolean> {
+    console.log('Triggering enhanced mobile popup for:', medicineData.name);
+    
+    try {
+      if (!('serviceWorker' in navigator)) {
+        return await this.fallbackMobileNotification(medicineData);
+      }
+
+      const registration = await navigator.serviceWorker.ready;
+      
+      const notificationOptions = {
+        body: `Dosis: ${medicineData.dose}\nWaktu: ${medicineData.time}`,
+        icon: this.getIconPath('android-icon-192x192.png'),
+        badge: this.getIconPath('android-icon-192x192.png'),
+        image: this.getIconPath('android-icon-512x512.png'),
+        tag: `mobile-${medicineData.id}-${Date.now()}`,
+        requireInteraction: true,
+        silent: false,
+        vibrate: this.getVibrationPattern(medicineData.priority),
+        actions: [
+          { action: 'taken', title: '✅ Sudah Minum' },
+          { action: 'snooze', title: '⏰ Tunda 10m' }
+        ],
+        data: {
+          medicineId: medicineData.id,
+          medicineName: medicineData.name,
+          dose: medicineData.dose,
+          time: medicineData.time,
+          priority: medicineData.priority || 'medium',
+          type: 'medicine_reminder',
+          url: window.location.origin,
+          timestamp: new Date().toISOString()
+        }
+      };
+
+      console.log('Sending enhanced mobile notification');
+      
+      await registration.showNotification(`💊 ${medicineData.name}`, notificationOptions);
+      
+      // Update app badge
+      await this.updateAppBadge(1);
+      
+      console.log('Enhanced mobile notification sent successfully');
+      return true;
+
+    } catch (error: any) {
+      console.error('Failed to send enhanced notification:', error);
+      return await this.fallbackMobileNotification(medicineData);
+    }
+  }
+
+  // App Badge API untuk mobile
+  private static async updateAppBadge(count: number): Promise<void> {
+    try {
+      if ('setAppBadge' in navigator) {
+        if (count > 0) {
+          await (navigator as any).setAppBadge(count);
+          console.log('App badge set to:', count);
+        } else {
+          await (navigator as any).clearAppBadge();
+          console.log('App badge cleared');
+        }
+      }
+    } catch (error) {
+      console.log('App Badge API not supported');
+    }
+  }
+
+  // Request permission dengan semua fitur
   static async requestMobilePermission(): Promise<boolean> {
     if (!('Notification' in window)) {
-      console.warn('Browser mobile tidak mendukung notifikasi');
+      console.warn('Browser tidak mendukung notifikasi');
       return false;
     }
 
-    // Di mobile, permission biasanya sudah granted jika user mengizinkan
     if (Notification.permission === 'granted') {
       return true;
     }
 
     if (Notification.permission === 'denied') {
-      console.warn('Izin notifikasi ditolak di mobile');
+      console.warn('Izin notifikasi ditolak');
       return false;
     }
 
@@ -29,69 +159,11 @@ export class MobileNotificationService {
       console.log('Mobile notification permission:', permission);
       return permission === 'granted';
     } catch (error) {
-      console.error('Error requesting mobile notification permission:', error);
+      console.error('Error requesting permission:', error);
       return false;
     }
   }
 
-  // Trigger mobile notification seperti WA
-  static async triggerMobilePopup(medicineData: MobileMedicineData): Promise<boolean> {
-    console.log('Triggering mobile popup for:', medicineData.name);
-    
-    try {
-      // Cek service worker untuk mobile
-      if (!('serviceWorker' in navigator)) {
-        throw new Error('Service Worker tidak didukung di browser ini');
-      }
-
-      const registration = await navigator.serviceWorker.ready;
-      
-      // Konfigurasi untuk mobile notification
-      const notificationOptions = {
-        body: `Dosis: ${medicineData.dose}\nWaktu: ${medicineData.time}`,
-        icon: '/android-icon-192x192.png',
-        badge: '/android-icon-192x192.png',
-        tag: `mobile-${medicineData.id}-${Date.now()}`,
-        requireInteraction: true, // Tetap terbuka sampai user action
-        silent: false,
-        vibrate: this.getVibrationPattern(medicineData.priority),
-        actions: [
-          {
-            action: 'taken',
-            title: '✅ Sudah Minum'
-          },
-          {
-            action: 'snooze',
-            title: '⏰ Tunda 10m'
-          }
-        ],
-        data: {
-          medicineId: medicineData.id,
-          medicineName: medicineData.name,
-          dose: medicineData.dose,
-          time: medicineData.time,
-          priority: medicineData.priority || 'medium',
-          url: window.location.origin,
-          timestamp: new Date().toISOString()
-        }
-      };
-
-      console.log('Sending mobile notification with options:', notificationOptions);
-      
-      await registration.showNotification(`💊 ${medicineData.name}`, notificationOptions);
-      
-      console.log('Mobile popup notification sent successfully');
-      return true;
-
-    } catch (error: any) {
-      console.error('Failed to send mobile popup:', error);
-      
-      // Fallback untuk browser yang tidak support service worker
-      return await this.fallbackMobileNotification(medicineData);
-    }
-  }
-
-  // Fallback untuk mobile
   private static async fallbackMobileNotification(medicineData: MobileMedicineData): Promise<boolean> {
     try {
       const permissionGranted = await this.requestMobilePermission();
@@ -99,118 +171,80 @@ export class MobileNotificationService {
 
       const notification = new Notification(`💊 ${medicineData.name}`, {
         body: `Dosis: ${medicineData.dose} - ${medicineData.time}`,
-        icon: '/android-icon-192x192.png',
+        icon: this.getIconPath('android-icon-192x192.png'),
         tag: `mobile-fallback-${medicineData.id}`,
-        requireInteraction: true
+        requireInteraction: true,
+        vibrate: this.getVibrationPattern(medicineData.priority)
       });
 
-      // Handle click untuk fallback
       notification.onclick = () => {
-        console.log('Fallback mobile notification clicked');
         window.focus();
       };
 
       return true;
     } catch (error: any) {
-      console.error('Fallback mobile notification failed:', error);
+      console.error('Fallback notification failed:', error);
       return false;
     }
   }
 
-  // Vibration pattern berdasarkan priority (seperti WA)
+  private static getIconPath(iconName: string): string {
+    return `${window.location.origin}/${iconName}`;
+  }
+
   private static getVibrationPattern(priority: string = 'medium'): number[] {
     switch (priority) {
-      case 'high':
-        return [500, 200, 500, 200, 500]; // Panjang dan berulang
-      case 'medium':
-        return [300, 100, 300]; // Sedang
-      case 'low':
-        return [200, 100]; // Pendek
-      default:
-        return [200, 100, 200]; // Default seperti WA
+      case 'high': return [1000, 500, 1000, 500, 1000];
+      case 'medium': return [500, 250, 500];
+      case 'low': return [200, 100];
+      default: return [500, 250, 500];
     }
   }
 
-  // Test mobile notifications dengan berbagai skenario
-  static async testMobileNotifications(): Promise<Array<{ medicine: string; success: boolean; type: string }>> {
-    const testScenarios: MobileMedicineData[] = [
-      {
-        id: 'mobile-test-1',
-        name: 'Panadol',
-        dose: '1 tablet 500mg',
-        time: '08:00',
-        priority: 'medium'
-      },
-      {
-        id: 'mobile-test-2',
-        name: 'Vitamin C',
-        dose: '1 kapsul 1000mg',
-        time: '12:00',
-        priority: 'low'
-      },
-      {
-        id: 'mobile-test-3',
-        name: 'ANTIBIOTIK',
-        dose: '2 tablet (PENTING)',
-        time: '20:00',
-        priority: 'high'
-      }
-    ];
+  // Test background notification dengan delay 15 detik
+  static async testBackgroundNotification(): Promise<boolean> {
+    const medicineData: MobileMedicineData = {
+      id: 'bg-test-' + Date.now(),
+      name: 'Panadol',
+      dose: '1 tablet 500mg',
+      time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+      priority: 'medium'
+    };
 
-    const results: Array<{ medicine: string; success: boolean; type: string }> = [];
+    console.log('Starting background notification test with 15 second delay...');
     
-    for (const medicine of testScenarios) {
-      console.log(`Testing mobile notification for: ${medicine.name}`);
-      const success = await this.triggerMobilePopup(medicine);
-      results.push({ 
-        medicine: medicine.name, 
-        success, 
-        type: `${medicine.priority} priority` 
-      });
-      
-      // Tunggu 3 detik antara notifikasi
-      await new Promise(resolve => setTimeout(resolve, 3000));
+    const success = await this.scheduleBackgroundNotification(medicineData, 15);
+    
+    if (success) {
+      console.log('✅ Background notification scheduled successfully');
+      console.log('📱 Anda bisa menutup app sekarang - notifikasi akan muncul dalam 15 detik');
+    } else {
+      console.log('❌ Failed to schedule background notification');
     }
-
-    return results;
-  }
-
-  // Schedule mobile notification
-  static async scheduleMobileNotification(medicineData: MobileMedicineData, delaySeconds: number = 10): Promise<boolean> {
-    console.log(`Scheduling mobile notification for ${medicineData.name} in ${delaySeconds} seconds`);
     
-    return new Promise<boolean>((resolve) => {
-      setTimeout(async () => {
-        try {
-          const success = await this.triggerMobilePopup(medicineData);
-          resolve(success);
-        } catch (error) {
-          console.error('Scheduled mobile notification failed:', error);
-          resolve(false);
-        }
-      }, delaySeconds * 1000);
-    });
+    return success;
   }
 
-  // Check mobile notification support
-  static checkMobileSupport(): {
-    supported: boolean;
+  // Check semua fitur mobile
+  static checkMobileFeatures(): {
+    notifications: boolean;
     serviceWorker: boolean;
+    backgroundSync: boolean;
+    appBadge: boolean;
     vibration: boolean;
-    permission: string;
     isMobile: boolean;
+    permission: string;
   } {
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    const supported = 'Notification' in window;
-    const serviceWorker = 'serviceWorker' in navigator;
-    const vibration = 'vibrate' in navigator;
-
+    
     return {
-      supported,
-      serviceWorker,
-      vibration,
-      permission: supported ? Notification.permission : 'unsupported',
-      isMobile
+      notifications: 'Notification' in window,
+      serviceWorker: 'serviceWorker' in navigator,
+      backgroundSync: 'serviceWorker' in navigator && 'sync' in (self as any),
+      appBadge: 'setAppBadge' in navigator,
+      vibration: 'vibrate' in navigator,
+      isMobile,
+      permission: 'Notification' in window ? Notification.permission : 'unsupported'
     };
   }
 }
