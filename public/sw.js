@@ -1,23 +1,20 @@
-const CACHE_NAME = 'medicine-reminder-v1';
-
-// Install Service Worker
+// Service Worker untuk notifikasi mobile
 self.addEventListener('install', (event) => {
-  console.log('Service Worker: Installing...');
+  console.log('Service Worker: Installing for mobile notifications...');
   self.skipWaiting();
 });
 
-// Activate Service Worker  
 self.addEventListener('activate', (event) => {
-  console.log('Service Worker: Activating...');
+  console.log('Service Worker: Activating for mobile notifications...');
   event.waitUntil(self.clients.claim());
 });
 
-// Handle Push Notifications (Popup seperti WA)
+// Handle push notifications untuk mobile
 self.addEventListener('push', (event) => {
-  console.log('Push Notification Received:', event);
+  console.log('Push notification received for mobile');
   
   if (!event.data) {
-    console.log('Push event without data');
+    console.log('No data in push event');
     return;
   }
 
@@ -26,70 +23,77 @@ self.addEventListener('push', (event) => {
     data = event.data.json();
   } catch (e) {
     data = {
-      title: 'Pengingat Obat',
-      body: event.data.text() || 'Waktu minum obat!',
+      title: '💊 Pengingat Obat',
+      body: 'Waktunya minum obat!',
       medicine: 'Obat',
       dose: '',
-      time: new Date().toLocaleTimeString('id-ID')
+      time: 'Sekarang'
     };
   }
 
+  // Options untuk mobile notification (seperti WA)
   const options = {
     body: data.body || `Waktunya minum ${data.medicine} ${data.dose}`,
     icon: '/android-icon-192x192.png',
     badge: '/android-icon-192x192.png',
-    image: '/android-icon-192x192.png', // Optional: large image
-    tag: `medicine-${data.medicine}-${Date.now()}`,
+    image: '/android-icon-192x192.png', // Gambar besar (opsional)
+    tag: `medicine-${data.medicineId || 'reminder'}-${Date.now()}`,
     requireInteraction: true, // Tetap terbuka sampai user action
-    silent: false, // Pastikan ada sound/vibrate
-    vibrate: [100, 50, 100], // Pattern vibrate
+    silent: false, // Ada suara
+    vibrate: [200, 100, 200, 100, 200], // Pattern vibrate seperti WA
     actions: [
       {
         action: 'taken',
-        title: '✅ Sudah Minum',
-        icon: '/android-icon-192x192.png'
+        title: '✅ Sudah Minum'
       },
       {
         action: 'snooze', 
-        title: '⏰ Tunda 10m',
-        icon: '/android-icon-192x192.png'
+        title: '⏰ Tunda 10m'
       }
     ],
     data: {
-      url: '/', // URL untuk redirect ketika diklik
       medicineId: data.medicineId,
-      scheduledTime: data.scheduledTime
-    }
+      medicineName: data.medicine,
+      dose: data.dose,
+      timestamp: data.timestamp || new Date().toISOString(),
+      url: data.url || '/'
+    },
+    // Mobile-specific options
+    dir: 'ltr', // Text direction
+    lang: 'id-ID', // Language
+    timestamp: Date.now()
   };
 
-  console.log('Showing popup notification:', data.title, options);
+  console.log('Showing mobile notification:', data.title);
 
   event.waitUntil(
     self.registration.showNotification(data.title || '💊 Pengingat Obat', options)
+      .then(() => console.log('Mobile notification shown successfully'))
+      .catch(error => console.error('Failed to show mobile notification:', error))
   );
 });
 
-// Handle Notification Clicks (Popup Actions)
+// Handle notification clicks di mobile
 self.addEventListener('notificationclick', (event) => {
-  console.log('Notification clicked - Action:', event.action);
-  console.log('Notification data:', event.notification.data);
+  console.log('Mobile notification clicked - Action:', event.action);
   
   const notification = event.notification;
   const action = event.action;
-  const medicineData = notification.data;
+  const data = notification.data;
 
   notification.close();
 
-  // Handle different actions
+  // Handle actions
   if (action === 'taken') {
-    console.log('Medicine taken:', medicineData.medicineId);
-    // Simpan ke localStorage atau kirim ke main app
+    console.log('Medicine taken on mobile:', data.medicineName);
+    // Kirim message ke app
     event.waitUntil(
       self.clients.matchAll().then(clients => {
         clients.forEach(client => {
           client.postMessage({
-            type: 'MEDICINE_TAKEN',
-            medicineId: medicineData.medicineId,
+            type: 'MEDICINE_TAKEN_MOBILE',
+            medicineId: data.medicineId,
+            medicineName: data.medicineName,
             timestamp: new Date().toISOString()
           });
         });
@@ -97,14 +101,14 @@ self.addEventListener('notificationclick', (event) => {
     );
     
   } else if (action === 'snooze') {
-    console.log('Medicine snoozed:', medicineData.medicineId);
+    console.log('Medicine snoozed on mobile:', data.medicineName);
     // Kirim message untuk snooze
     event.waitUntil(
       self.clients.matchAll().then(clients => {
         clients.forEach(client => {
           client.postMessage({
-            type: 'MEDICINE_SNOOZED', 
-            medicineId: medicineData.medicineId,
+            type: 'MEDICINE_SNOOZED_MOBILE',
+            medicineId: data.medicineId,
             duration: 10 // menit
           });
         });
@@ -112,42 +116,49 @@ self.addEventListener('notificationclick', (event) => {
     );
     
   } else {
-    // User clicked the notification body (bukan tombol action)
-    console.log('Notification body clicked');
+    // User klik body notifikasi (bukan tombol action)
+    console.log('Mobile notification body clicked');
+    
     event.waitUntil(
-      self.clients.matchAll({ type: 'window' }).then((clientList) => {
-        // Focus existing app atau buka baru
+      self.clients.matchAll({ 
+        type: 'window',
+        includeUncontrolled: true 
+      }).then((clientList) => {
+        // Cari client yang sudah terbuka
         for (const client of clientList) {
-          if (client.url === medicineData.url && 'focus' in client) {
+          if (client.url.includes(self.location.origin) && 'focus' in client) {
+            console.log('Focusing existing app window');
             return client.focus();
           }
         }
+        
+        // Buka app baru jika tidak ada yang terbuka
         if (self.clients.openWindow) {
-          return self.clients.openWindow(medicineData.url || '/');
+          console.log('Opening new app window');
+          return self.clients.openWindow(data.url || '/');
         }
       })
     );
   }
 });
 
-// Handle background sync untuk notifikasi terjadwal
+// Background sync untuk mobile
 self.addEventListener('sync', (event) => {
-  if (event.tag.startsWith('medicine-reminder-')) {
-    console.log('Background sync for medicine reminder:', event.tag);
-    event.waitUntil(triggerScheduledNotification(event.tag));
+  if (event.tag.startsWith('mobile-medicine-')) {
+    console.log('Background sync for mobile notification:', event.tag);
+    event.waitUntil(triggerMobileNotification(event.tag));
   }
 });
 
-async function triggerScheduledNotification(syncTag) {
-  // Extract medicine data dari sync tag
-  const medicineData = JSON.parse(syncTag.replace('medicine-reminder-', ''));
+async function triggerMobileNotification(syncTag) {
+  const medicineData = JSON.parse(syncTag.replace('mobile-medicine-', ''));
   
-  // Trigger push notification
-  await self.registration.showNotification(`💊 Waktu Minum ${medicineData.name}`, {
-    body: `Dosis: ${medicineData.dose} - ${medicineData.time}`,
+  await self.registration.showNotification(`💊 ${medicineData.name}`, {
+    body: `${medicineData.dose} - ${medicineData.time}`,
     icon: '/android-icon-192x192.png',
-    tag: `medicine-${medicineData.id}-${Date.now()}`,
+    tag: `mobile-${medicineData.id}-${Date.now()}`,
     requireInteraction: true,
+    vibrate: [200, 100, 200],
     actions: [
       { action: 'taken', title: '✅ Sudah Minum' },
       { action: 'snooze', title: '⏰ Tunda 10m' }
