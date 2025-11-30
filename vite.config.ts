@@ -4,7 +4,6 @@ import path from "path";
 import { componentTagger } from "lovable-tagger";
 import { VitePWA } from "vite-plugin-pwa";
 
-// https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
@@ -15,10 +14,16 @@ export default defineConfig(({ mode }) => ({
     mode === "development" && componentTagger(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.ico"],
+      includeAssets: [
+        "favicon.ico",
+        "favicon-16x16.png", 
+        "favicon-32x32.png",
+        "apple-icon-180x180.png",
+        "android-icon-192x192.png"
+      ],
       manifest: {
         name: "Pengingat Obat",
-        short_name: "Pengingat Obat",
+        short_name: "PengingatObat",
         description: "Aplikasi pengingat minum obat yang mudah digunakan",
         theme_color: "#3B82F6",
         background_color: "#F8FAFC",
@@ -28,37 +33,24 @@ export default defineConfig(({ mode }) => ({
         start_url: "/",
         icons: [
           {
-            src: "/placeholder.svg",
+            src: "android-icon-192x192.png",  // Gunakan yang sudah ada
             sizes: "192x192",
-            type: "image/svg+xml",
-            purpose: "any maskable",
+            type: "image/png"
           },
           {
-            src: "/placeholder.svg",
-            sizes: "512x512",
-            type: "image/svg+xml",
-            purpose: "any maskable",
-          },
+            src: "ms-icon-310x310.png",  // Gunakan yang terbesar yang ada
+            sizes: "310x310", 
+            type: "image/png"
+          }
         ],
+        categories: ["health", "productivity"],
       },
       workbox: {
-        globPatterns: ["**/*.{js,css,html,ico,png,svg}"],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
-            handler: "CacheFirst",
-            options: {
-              cacheName: "google-fonts-cache",
-              expiration: {
-                maxEntries: 10,
-                maxAgeSeconds: 60 * 60 * 24 * 365, // 1 year
-              },
-              cacheableResponse: {
-                statuses: [0, 200],
-              },
-            },
-          },
-        ],
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,mp3,wav,json}"],
+      },
+      devOptions: {
+        enabled: true,
+        type: "module",
       },
     }),
   ].filter(Boolean),

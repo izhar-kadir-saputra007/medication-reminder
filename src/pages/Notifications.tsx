@@ -1,8 +1,62 @@
-import { X, Bell, Clock, Smartphone, Pill } from "lucide-react";
+import { useState } from "react";
+import { X, Bell, Clock, Smartphone, Pill, TestTube } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
 import BottomNav from "@/components/BottomNav";
+import { NotificationService } from "@/services/notificationService";
 
 const Notifications = () => {
+  const [isLoading, setIsLoading] = useState(false);
+  const [testResult, setTestResult] = useState<string>("");
+
+  const testNotification = async () => {
+    setIsLoading(true);
+    setTestResult("");
+    
+    try {
+      const success = await NotificationService.showMedicineReminder(
+        "Panadol",
+        "1 tablet 500mg",
+        "08:00"
+      );
+      
+      if (success) {
+        setTestResult("✅ Notifikasi berhasil dikirim!");
+      } else {
+        setTestResult("❌ Gagal mengirim notifikasi. Cek permission browser.");
+      }
+    } catch (error) {
+      setTestResult(`❌ Error: ${error.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const testScheduledNotification = async () => {
+    setIsLoading(true);
+    setTestResult("");
+    
+    try {
+      // Schedule 10 detik dari sekarang
+      const triggerTime = new Date(Date.now() + 10000);
+      const success = await NotificationService.scheduleNotification(
+        "Vitamin C",
+        "1 kapsul 1000mg",
+        triggerTime
+      );
+      
+      if (success) {
+        setTestResult("✅ Notifikasi dijadwalkan untuk 10 detik lagi!");
+      } else {
+        setTestResult("❌ Gagal menjadwalkan notifikasi.");
+      }
+    } catch (error) {
+      setTestResult(`❌ Error: ${error.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background pb-24">
       <div className="max-w-md mx-auto">
@@ -15,6 +69,51 @@ const Notifications = () => {
         </div>
 
         <div className="px-4 py-6 space-y-6">
+          {/* Testing Section */}
+          <div className="bg-card rounded-2xl shadow-sm border border-border/50 p-6">
+            <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
+              <TestTube className="h-5 w-5 text-primary" />
+              Testing Notifikasi
+            </h2>
+            
+            <div className="space-y-3">
+              <Button 
+                onClick={testNotification}
+                disabled={isLoading}
+                className="w-full gap-2"
+              >
+                <Bell className="h-4 w-4" />
+                Test Notifikasi Sekarang
+              </Button>
+              
+              <Button 
+                onClick={testScheduledNotification}
+                disabled={isLoading}
+                variant="outline"
+                className="w-full gap-2"
+              >
+                <Clock className="h-4 w-4" />
+                Test Notifikasi Terjadwal (10 detik)
+              </Button>
+
+              {testResult && (
+                <div className={`p-3 rounded-lg text-sm ${
+                  testResult.includes('✅') 
+                    ? 'bg-success/10 text-success border border-success/20' 
+                    : 'bg-destructive/10 text-destructive border border-destructive/20'
+                }`}>
+                  {testResult}
+                </div>
+              )}
+
+              <div className="text-xs text-muted-foreground space-y-1">
+                <p>• Pastikan browser mengizinkan notifikasi</p>
+                <p>• Untuk testing terjadwal, tunggu 10 detik</p>
+                <p>• Notifikasi akan muncul meski app ditutup</p>
+              </div>
+            </div>
+          </div>
+
           {/* Phone Mockup */}
           <div className="bg-gradient-to-b from-slate-800 to-slate-900 rounded-[3rem] p-4 shadow-2xl">
             <div className="bg-black rounded-[2.5rem] p-3 relative">
